@@ -120,7 +120,7 @@ namespace simplereactor
         {
             if (!m_run) break;;
 
-            int nready = ::epoll_wait(m_epollfd, events, events_size, 0);
+            int nready = ::epoll_wait(m_epollfd, events, events_size, -1);
             if (nready <= 0) continue;
 
             for (int i = 0; i < events_size; ++i)
@@ -139,7 +139,7 @@ namespace simplereactor
 
                     struct epoll_event event;
                     event.data.fd = connfd;
-                    event.events = EPOLLIN;
+                    event.events = EPOLLIN | EPOLLET;
                     ::epoll_ctl(m_epollfd, EPOLL_CTL_ADD, connfd, &event);
                     printf("connect=%d\n", connfd);
                 }

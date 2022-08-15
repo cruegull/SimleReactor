@@ -20,11 +20,14 @@ namespace simplereactor
         EventHandle();
         ~EventHandle();
         void setFd(const int& epollfd, const int& socketfd);
-        void setEvents(struct epoll_event& event);
+        void setEvents(struct epoll_event event);
         void handleEvent();
+        void handleRead(int fd);
     };
     
-    EventHandle::EventHandle()
+    EventHandle::EventHandle():
+        m_epollfd(0),
+        m_socketfd(0)
     {
     }
     
@@ -38,46 +41,57 @@ namespace simplereactor
         m_socketfd = socketfd;
     }
 
-    void EventHandle::setEvents(struct epoll_event& event)
+    void EventHandle::setEvents(struct epoll_event event)
     {
         m_events.emplace_back(event);
     }
 
     void EventHandle::handleEvent()
     {
-        int ret = 0;
-        char buf[1024] = { 0 };
-        int buf_size = 1024;
-
         for (auto &i : m_events)
         {
             if (i.events & EPOLLERR)
             {
                 // Todo: deal with error
             }
-            if (i.events & (EPOLLIN | EPOLLPRI | EPOLLRDHUP))
+            else if (i.events & (EPOLLIN | EPOLLPRI | EPOLLRDHUP))
             {
-                ret = ::recv(i.data.fd, buf, buf_size, 0);
-                if (ret > 0)
-                {
-                    printf("recv buf=%s\n", buf);
-                    ::send(i.data.fd, buf, buf_size, 0);
-                    // Todo: 做好包的边界处理防止粘包，拆包
-                }
-                else
-                {
-                    ::epoll_ctl(m_epollfd, EPOLL_CTL_DEL, i.data.fd, nullptr);
-                    ::close(i.data.fd);
-                    printf("close connfd=%d\n", i.data.fd);
-                }
+                handleRead(i.data.fd);
             }
-            if (i.events & EPOLLOUT)
+            else if (i.events & EPOLLOUT)
             {
                 // Todo: deal with out
             }
         }
-        
         m_events.clear();
+    }
+
+    void EventHandle::handleRead(int fd)
+    {
+        char buf[1024] = { 0 };
+        for (;;)
+        {
+            ssize_t ret = ::recv(fd, buf, sizeof(buf), 0);
+            if (ret > 0)
+            {
+                printf("recv buf=%s\n", buf);
+                ::send(fd, buf, sizeof(buf), 0);
+            }
+            else if(ret == -1 && errno == EINTR)
+            {
+                continue;
+            }
+            else if(ret == -1 && ((errno == EAGAIN) || (errno == EWOULDBLOCK)))
+            {
+                break;
+            }
+            else if(ret == 0)
+            {
+                printf("close fd=%d\n", fd);
+                ::close(fd);
+                break;
+            }
+        }
     }
     
 }

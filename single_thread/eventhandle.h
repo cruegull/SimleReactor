@@ -24,10 +24,11 @@ namespace simplereactor
     public:
         EventHandle();
         ~EventHandle();
-        void setEvents(struct epoll_event& event);
+        void setEvents(struct epoll_event event);
         void loop(const int& epollfd, const int& socketfd);
         void stop();
         void handleEvent();
+        void handleRead(int fd);
     };
     
     EventHandle::EventHandle():
@@ -39,14 +40,9 @@ namespace simplereactor
     {
     }
 
-    void EventHandle::setEvents(struct epoll_event& event)
+    void EventHandle::setEvents(struct epoll_event event)
     {
         std::unique_lock<std::mutex> lck(m_mtx);
-        for (const auto& i : m_events)
-        {
-            if (i.data.fd == event.data.fd)
-                return;
-        }
         m_events.emplace_back(event);
     }
 
@@ -60,7 +56,8 @@ namespace simplereactor
 
         int cpu_num = std::max(std::thread::hardware_concurrency(), (unsigned int)1);
         m_thread.resize(cpu_num);
-        for (int i = 0; i < cpu_num; ++i)
+        printf("m_thread size=%d\n", static_cast<int>(m_thread.size()));
+        for (int i = 0; i < m_thread.size(); ++i)
         {
             m_thread[i] = std::thread([this](){
                 for (;;)
@@ -83,29 +80,13 @@ namespace simplereactor
                         m_events.erase(m_events.begin());
                     }
 
-                    int ret = 0;
-                    char buf[1024] = { 0 };
-                    int buf_size = 1024;
-
                     if (event.events & EPOLLERR)
                     {
                         // Todo: deal with error
                     }
                     if (event.events & (EPOLLIN | EPOLLPRI | EPOLLRDHUP))
                     {
-                        ret = ::recv(event.data.fd, buf, buf_size, 0);
-                        if (ret > 0)
-                        {
-                            printf("recv buf=%s\n", buf);
-                            ::send(event.data.fd, buf, buf_size, 0);
-                            // Todo: 做好包的边界处理防止粘包，拆包
-                        }
-                        else
-                        {
-                            ::epoll_ctl(m_epollfd, EPOLL_CTL_DEL, event.data.fd, nullptr);
-                            ::close(event.data.fd);
-                            printf("close connfd=%d\n", event.data.fd);
-                        }
+                        handleRead(event.data.fd);
                     }
                     if (event.events & EPOLLOUT)
                     {
@@ -131,6 +112,34 @@ namespace simplereactor
     {
         if (m_run)
             m_cond.notify_all();
+    }
+
+    void EventHandle::handleRead(int fd)
+    {
+        char buf[1024] = { 0 };
+        for (;;)
+        {
+            ssize_t ret = ::recv(fd, buf, sizeof(buf), 0);
+            if (ret > 0)
+            {
+                printf("recv buf=%s\n", buf);
+                ::send(fd, buf, sizeof(buf), 0);
+            }
+            else if(ret == -1 && errno == EINTR)
+            {
+                continue;
+            }
+            else if(ret == -1 && ((errno == EAGAIN) || (errno == EWOULDBLOCK)))
+            {
+                break;
+            }
+            else if(ret == 0)
+            {
+                printf("close fd=%d\n", fd);
+                ::close(fd);
+                break;
+            }
+        }
     }
     
 }

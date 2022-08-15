@@ -119,7 +119,7 @@ namespace simplereactor
         {
             if (!m_run) break;;
 
-            int nready = ::epoll_wait(m_epollfd, events, events_size, 0);
+            int nready = ::epoll_wait(m_epollfd, events, events_size, -1);
             if (nready <= 0) continue;
 
             for (int i = 0; i < events_size; ++i)
